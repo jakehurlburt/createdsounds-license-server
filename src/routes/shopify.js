@@ -8,7 +8,7 @@ const router = express.Router();
 
 function verifyShopifyWebhook (req)
 {
-    const secret = process.env.SHOPIFY_WEBHOOK_SECRET;
+    const secret = process.env.SHOPIFY_WEBHOOK_SECRET?.trim();
 
     if (! secret)
     {
@@ -16,23 +16,42 @@ function verifyShopifyWebhook (req)
         return false;
     }
 
-    const hmacHeader = req.get ('X-Shopify-Hmac-Sha256');
+    const hmacHeader = req.get ('X-Shopify-Hmac-Sha256')?.trim();
 
     if (! hmacHeader)
+    {
+        console.warn ('Shopify webhook missing X-Shopify-Hmac-Sha256 header');
         return false;
+    }
+
+    const rawBody = req.rawBody;
+
+    if (! rawBody || ! Buffer.isBuffer (rawBody) || rawBody.length === 0)
+    {
+        console.warn ('Shopify webhook missing raw body for HMAC verification');
+        return false;
+    }
 
     const digest = crypto
         .createHmac ('sha256', secret)
-        .update (req.rawBody, 'utf8')
+        .update (rawBody)
         .digest ('base64');
 
-    const expected = Buffer.from (digest);
-    const received = Buffer.from (hmacHeader);
+    const expected = Buffer.from (digest, 'utf8');
+    const received = Buffer.from (hmacHeader, 'utf8');
 
     if (expected.length !== received.length)
+    {
+        console.warn ('Shopify HMAC length mismatch — secret may be wrong');
         return false;
+    }
 
-    return crypto.timingSafeEqual (expected, received);
+    const valid = crypto.timingSafeEqual (expected, received);
+
+    if (! valid)
+        console.warn ('Shopify HMAC mismatch — use API secret key (shpss_) from the same custom app that owns the webhook');
+
+    return valid;
 }
 
 function orderContainsBloom (order)
