@@ -37,21 +37,33 @@ function verifyShopifyWebhook (req)
         .update (rawBody)
         .digest ('base64');
 
-    const expected = Buffer.from (digest, 'utf8');
-    const received = Buffer.from (hmacHeader, 'utf8');
+    // String compare first (Shopify sends matching base64 strings)
+    if (digest === hmacHeader)
+        return true;
 
-    if (expected.length !== received.length)
+    try
     {
-        console.warn ('Shopify HMAC length mismatch — secret may be wrong');
+        const valid = crypto.timingSafeEqual (
+            Buffer.from (digest, 'base64'),
+            Buffer.from (hmacHeader, 'base64')
+        );
+
+        if (! valid)
+        {
+            console.warn ('Shopify HMAC mismatch.');
+            console.warn ('  Secret starts with:', secret.slice (0, 6) + '...');
+            console.warn ('  Body bytes:', rawBody.length);
+            console.warn ('  Fix: webhook + secret must be from same Dev Dashboard app.');
+            console.warn ('  Delete Notifications webhook; use register script OR add read_orders in Versions.');
+        }
+
+        return valid;
+    }
+    catch (err)
+    {
+        console.warn ('Shopify HMAC compare failed:', err.message);
         return false;
     }
-
-    const valid = crypto.timingSafeEqual (expected, received);
-
-    if (! valid)
-        console.warn ('Shopify HMAC mismatch — use API secret key (shpss_) from the same custom app that owns the webhook');
-
-    return valid;
 }
 
 function orderContainsBloom (order)
